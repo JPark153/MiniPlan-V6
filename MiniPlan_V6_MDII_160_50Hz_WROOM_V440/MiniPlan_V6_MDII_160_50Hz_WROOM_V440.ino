@@ -765,12 +765,12 @@ void Set_PWM_to_Servo(int iServo, int iValue)
 {
   int NewPWM = map(iValue, PWMRES_Min, PWMRES_Max, SERVOMIN, SERVOMAX);
 
-  Serial.print("Set_PWM_to_Servo = ");
-  Serial.print(iServo);
-  Serial.print(" , iValue = ");
-  Serial.print(iValue);
-  Serial.print(" , NewPWM = ");
-  Serial.println(NewPWM);
+  // Serial.print("Set_PWM_to_Servo = ");
+  // Serial.print(iServo);
+  // Serial.print(" , iValue = ");
+  // Serial.print(iValue);
+  // Serial.print(" , NewPWM = ");
+  // Serial.println(NewPWM);
 
   if (iServo >= 19)
   {
@@ -2058,7 +2058,6 @@ void setup(void) {
   Serial.begin(9600);
   Serial.println("MiniPlan V6 Start");
 
-
   // Engineering Model
   pinMode(12, OUTPUT);
   digitalWrite(12, LOW);
@@ -2070,10 +2069,8 @@ void setup(void) {
     Servo_PROGRAM = 100;
   }
 
-
   // Initialize I2C
   Wire.begin(4, 5);
-
 
   // Initialize I2C OLED
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
@@ -2107,16 +2104,19 @@ void setup(void) {
   WiFi.softAP(AP_NameChar, WiFiAPPSK);
   IPAddress myIP = WiFi.softAPIP();
 
-
   // EEPROM
   EEPROM.begin(512);
   delay(10);
 
-
   // PWM Servo Driver
   pwm.begin();
-  Get_PWM_Frequency();
+  uint32_t freq = pwm.getOscillatorFrequency();
+  Serial.print(freq);
+  Serial.println("[Hz]");
+  //Get_PWM_Frequency();
+  pwm.setOscillatorFrequency(25000000);
   pwm.setPWMFreq(Set_PWM_Freq);
+  delay(10);
 
 
   // Clear Input Voltage Low
