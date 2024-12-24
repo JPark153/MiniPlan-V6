@@ -31,9 +31,12 @@ String Thanks_1 = "Special Thanks : Mason Chen (Action Director)";
 String Thanks_2 = "Special Thanks : Roy Chen (Programming)";
 String ShowVoltage = "???V";
 
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
 //  I2C Address 0x3C
-#define OLED_RESET LED_BUILTIN
-Adafruit_SSD1306 display(-1);
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // I2C Address 0x40
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
@@ -762,12 +765,12 @@ void Set_PWM_to_Servo(int iServo, int iValue)
 {
   int NewPWM = map(iValue, PWMRES_Min, PWMRES_Max, SERVOMIN, SERVOMAX);
 
-  //Serial.print("Set_PWM_to_Servo = ");
-  //Serial.print(iServo);
-  //Serial.print(" , iValue = ");
-  //Serial.print(iValue);
-  //Serial.print(" , NewPWM = ");
-  //Serial.println(NewPWM);
+  Serial.print("Set_PWM_to_Servo = ");
+  Serial.print(iServo);
+  Serial.print(" , iValue = ");
+  Serial.print(iValue);
+  Serial.print(" , NewPWM = ");
+  Serial.println(NewPWM);
 
   if (iServo >= 19)
   {
@@ -831,50 +834,52 @@ void Servo_PROGRAM_Center()
 /*============================================================================*/
 void Servo_PROGRAM_Run(int iMatrix[][ALLMATRIX],  int iSteps)
 {
-  int INT_TEMP_A, INT_TEMP_B, INT_TEMP_C;
+  int Initial_Angle, Target_Angle, Traced_Angle;
 
-  for ( int MainLoopIndex = 0; MainLoopIndex < iSteps; MainLoopIndex++)  // iSteps 步驟主迴圈
+  for ( int MainLoopIndex = 0; MainLoopIndex < iSteps; MainLoopIndex++)  // iSteps main loop of steps
   {
-    // InterTotalTime 此步驟總時間
+    // InterTotalTime Total time for this step
     int InterTotalTime = iMatrix [ MainLoopIndex ] [ ALLMATRIX - 1 ] + (int8_t)EEPROM.read(ALLMATRIX - 1);
 
-    // InterDelayCounter 此步驟基本延遲次數
+    // InterDelayCounter The basic number of delays in this step
     int InterDelayCounter = InterTotalTime / BASEDELAYTIME;
 
-    // 內差次數迴圈
+    // Inner difference times loop
     for ( int InterStepLoop = 0; InterStepLoop < InterDelayCounter; InterStepLoop++)
     {
 
-      for (int ServoIndex = 0; ServoIndex < ALLSERVOS; ServoIndex++)  // 馬達主迴圈
+      for (int ServoIndex = 0; ServoIndex < ALLSERVOS; ServoIndex++)  // Motor main loop
       {
 
-        INT_TEMP_A = Running_Servo_POS[ServoIndex];                                                    // 馬達現在位置
-        INT_TEMP_B = iMatrix[MainLoopIndex][ServoIndex] + (int8_t)EEPROM.read(ServoIndex);    // 馬達目標位置
+        Initial_Angle = Running_Servo_POS[ServoIndex];                                           // Current position of motor
+        Target_Angle = iMatrix[MainLoopIndex][ServoIndex] + (int8_t)EEPROM.read(ServoIndex);    // Motor target position+compensation
 
-        if (INT_TEMP_A == INT_TEMP_B)         // 馬達數值不變
+        if (Initial_Angle == Target_Angle)         // Motor value remains unchanged
         {
-          INT_TEMP_C = INT_TEMP_B;
+          Traced_Angle = Target_Angle;    // do nothing
         }
 
-        else if (INT_TEMP_A > INT_TEMP_B)   // 馬達數值減少
+        else if (Initial_Angle > Target_Angle)   // Motor value decreases
         {
-          // PWM內差值 = map( 執行次數時間累加, 開始時間, 結束時間, 內差起始值, 內差最大值 )
-          INT_TEMP_C =  map(BASEDELAYTIME * InterStepLoop, 0, InterTotalTime, 0, INT_TEMP_A - INT_TEMP_B);
+          // PWM Inner difference = map( Accumulation of execution times, Start time, end time, Inner difference starting value, Maximum value of internal difference )
+          // estimated_rotated_angle=total_angle / total_time * accml_time 
+          //  == linear trajectory in angle & time
+          Traced_Angle =  map(BASEDELAYTIME * InterStepLoop, 0, InterTotalTime, 0, Initial_Angle - Target_Angle);
 
-          if (INT_TEMP_A - INT_TEMP_C >= INT_TEMP_B)
+          if (Initial_Angle - Traced_Angle >= Target_Angle)
           {
-            Set_PWM_to_Servo(ServoIndex, INT_TEMP_A - INT_TEMP_C);
+            Set_PWM_to_Servo(ServoIndex, Initial_Angle - Traced_Angle);
           }
         }
 
-        else if (INT_TEMP_A < INT_TEMP_B)   // 馬達數值增加
+        else if (Initial_Angle < Target_Angle)   // Motor value increased
         {
           // PWM內差值 = map( 執行次數時間累加, 開始時間, 結束時間, 內差起始值, 內差最大值 )
-          INT_TEMP_C =  map(BASEDELAYTIME * InterStepLoop, 0, InterTotalTime, 0, INT_TEMP_B - INT_TEMP_A);
+          Traced_Angle =  map(BASEDELAYTIME * InterStepLoop, 0, InterTotalTime, 0, Target_Angle - Initial_Angle);
 
-          if (INT_TEMP_A + INT_TEMP_C <= INT_TEMP_B)
+          if (Initial_Angle + Traced_Angle <= Target_Angle)
           {
-            Set_PWM_to_Servo(ServoIndex, INT_TEMP_A + INT_TEMP_C);
+            Set_PWM_to_Servo(ServoIndex, Initial_Angle + Traced_Angle);
           }
         }
 
@@ -883,7 +888,7 @@ void Servo_PROGRAM_Run(int iMatrix[][ALLMATRIX],  int iSteps)
       delay(BASEDELAYTIME);
     }
 
-    // 備份目前馬達數值
+    // Back up current motor values
     for ( int Index = 0; Index < ALLMATRIX; Index++)
     {
       Running_Servo_POS[Index] = iMatrix[MainLoopIndex][Index] + (int8_t)EEPROM.read(Index);
@@ -943,6 +948,8 @@ int8_t readKeyValue(int8_t key)
   Serial.println(key);
 
   int8_t value = EEPROM.read(key);
+
+  return value;
 }
 
 
@@ -1040,11 +1047,15 @@ void handleController()
   if (pm != "")
   {
     Servo_PROGRAM = pm.toInt();
+    Serial.print("pm = ");
+    Serial.println(Servo_PROGRAM);
   }
 
   if (pms != "")
   {
     Servo_PROGRAM_Stack = pms.toInt();
+    Serial.print("pms= ");
+    Serial.println(Servo_PROGRAM_Stack);
   }
 
   if (servo != "")
@@ -1054,10 +1065,14 @@ void handleController()
     int Servo_PWM = ival.toInt() + (int8_t)EEPROM.read(Servo_ID);
     int pulselength = map(Servo_PWM, PWMRES_Min, PWMRES_Max, SERVOMIN, SERVOMAX);
 
-    //Serial.print("Servo ID = ");
-    //Serial.print(Servo_ID);
-    //Serial.print(", PWM = ");
-    //Serial.println(pulselength);
+    Serial.print("Servo ID = ");
+    Serial.print(Servo_ID);
+    Serial.print(", Angle = ");
+    Serial.print(ival.toInt());
+    Serial.print(", Angle_comp = ");
+    Serial.print(Servo_PWM);
+    Serial.print(", PWM(pulselength) = ");
+    Serial.println(pulselength);
 
     pwm.setPWM(Servo_ID, 0, pulselength);
   }
@@ -2352,16 +2367,16 @@ void loop(void) {
       ShowVoltage = ShowVoltage + buffer;
     }
 
-    Serial.print("Real VoltageValue = ");
-    Serial.print(analogRead(A0));
+//    Serial.print("Real VoltageValue = ");
+//    Serial.print(analogRead(A0));
     if (Input_Voltage_Low == 1 )
     {
       Serial.println(", Calc Value = Battery Low");
     }
     else
     {
-      Serial.print(", Calc Value = ");
-      Serial.println(Voltage);
+//      Serial.print(", Calc Value = ");
+//      Serial.println(Voltage);
     }
 
     OLED_Display_Index = OLED_Display_Index + 8;
